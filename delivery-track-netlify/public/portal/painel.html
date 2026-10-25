@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel da Loja — Delivery Track</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/portal/styles.css">
+<style>
+  .side-stack { display: flex; flex-direction: column; gap: 18px; }
+  .tabs { display: flex; gap: 6px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 11px; padding: 5px; }
+  .tabs button {
+    flex: 1; border: 0; background: transparent; color: var(--text-2); padding: 9px;
+    border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 650; font-family: inherit;
+    transition: background .15s, color .15s;
+  }
+  .tabs button.on { background: var(--brand-grad); color: #fff; }
+  .tab-panel { display: none; }
+  .tab-panel.on { display: block; animation: cardIn .3s var(--ease); }
+  .map-hint {
+    position: absolute; bottom: 14px; left: 14px; z-index: 500;
+    background: rgba(11,13,18,.86); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 13px; font-size: 12px; color: var(--text-2);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .order-card { cursor: default; }
+  .oc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .oc-id { font-size: 10.5px; color: var(--text-3); font-family: ui-monospace, monospace; letter-spacing: .03em; }
+  .oc-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+  .chip {
+    font-size: 11.5px; padding: 4px 9px; border-radius: 8px;
+    background: var(--bg-2); border: 1px solid var(--border-soft); color: var(--text-2);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .chip.live { color: #7bf0ac; border-color: rgba(46,226,122,.3); background: rgba(46,226,122,.08); }
+  .oc-links { margin-top: 10px; }
+  .link-row {
+    display: flex; align-items: center; gap: 8px; background: var(--bg-2);
+    border: 1px solid var(--border-soft); border-radius: 9px; padding: 7px 10px;
+    font-size: 11.5px; margin-top: 6px;
+  }
+  .link-row .url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-family: ui-monospace, monospace; }
+  .link-row .ic { font-size: 13px; }
+  .user-row {
+    display: flex; align-items: center; gap: 11px; padding: 11px 12px;
+    background: var(--bg-2); border: 1px solid var(--border-soft); border-radius: 11px; margin-bottom: 8px;
+  }
+  .user-row .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 12px; background: var(--surface-3); }
+  .role-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700; padding: 3px 8px; border-radius: 999px; }
+  .role-tag.lojista { background: rgba(255,77,61,.16); color: #ff9c8f; }
+  .role-tag.entregador { background: rgba(77,148,255,.16); color: #8dbcff; }
+  .section-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: 14px; }
+  .section-title .n { font-size: 11px; background: var(--surface-3); padding: 2px 8px; border-radius: 999px; color: var(--text-2); letter-spacing: 0; }
+  .filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .filter-row button {
+    border: 1px solid var(--border); background: var(--bg-2); color: var(--text-2);
+    padding: 7px 13px; border-radius: 999px; font-size: 12px; font-weight: 650; cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  .filter-row button.on { background: var(--surface-3); color: var(--text); border-color: var(--border); }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">
+        <div class="brand-logo">🛵</div>
+        <div>Delivery Track<small>Painel da loja</small></div>
+      </div>
+      <div class="spacer"></div>
+      <span class="conn-pill live" id="conn"><span class="dt"></span> ao vivo</span>
+      <div class="user-chip">
+        <div class="avatar" id="uAv">?</div>
+        <div class="meta"><b id="uName">…</b><span id="uRole">…</span></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Sair</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- STATS -->
+    <div class="stats" style="margin-top:22px">
+      <div class="stat"><div class="k">Pedidos hoje</div><div class="v" id="stTotal">0</div></div>
+      <div class="stat"><div class="k">Em rota</div><div class="v accent" id="stRoute">0</div></div>
+      <div class="stat"><div class="k">Entregues</div><div class="v" id="stDone" style="color:var(--green)">0</div></div>
+      <div class="stat"><div class="k">Faturamento</div><div class="v" id="stMoney" style="font-size:20px">R$ 0</div></div>
+    </div>
+
+    <div class="app-grid">
+      <!-- COLUNA ESQUERDA -->
+      <div class="side-stack">
+        <div class="card card-pad">
+          <div class="tabs" style="margin-bottom:18px">
+            <button class="on" data-tab="novo" onclick="setTab('novo', this)">＋ Novo pedido</button>
+            <button data-tab="equipe" onclick="setTab('equipe', this)">👥 Equipe</button>
+          </div>
+
+          <!-- TAB: NOVO PEDIDO -->
+          <div class="tab-panel on" id="tab-novo">
+            <div class="field">
+              <label>Nome do cliente</label>
+              <input class="input" id="cName" placeholder="Ex.: João Silva">
+            </div>
+            <div class="field">
+              <label>Telefone (WhatsApp)</label>
+              <input class="input" id="cPhone" placeholder="(11) 90000-0000">
+            </div>
+            <div class="field">
+              <label>Endereço de entrega</label>
+              <textarea class="input" id="cAddr" placeholder="Rua, número, bairro, complemento"></textarea>
+            </div>
+            <div class="field">
+              <label>Itens do pedido (um por linha)</label>
+              <textarea class="input" id="cItems" placeholder="1x Pizza Margherita&#10;1x Refrigerante 2L"></textarea>
+            </div>
+            <div class="field">
+              <label>Valor total (R$) — opcional</label>
+              <input class="input" id="cValue" type="number" step="0.01" min="0" placeholder="0,00">
+            </div>
+            <div class="field">
+              <label>Ponto de entrega no mapa</label>
+              <input class="input" id="cDest" placeholder="Clique no mapa para marcar 📍" readonly style="cursor:pointer">
+            </div>
+            <button class="btn btn-primary btn-full" onclick="criarPedido()" id="btnCriar">Criar pedido</button>
+            <p class="faint small" style="margin:11px 0 0;text-align:center">
+              O link do cliente e o do entregador são gerados automaticamente.
+            </p>
+          </div>
+
+          <!-- TAB: EQUIPE -->
+          <div class="tab-panel" id="tab-equipe">
+            <div id="usersList"></div>
+            <hr class="divider">
+            <div class="section-title">＋ Novo usuário</div>
+            <div class="field">
+              <label>Nome</label>
+              <input class="input" id="nName" placeholder="Ex.: Carlos Souza">
+            </div>
+            <div class="field">
+              <label>Usuário (login)</label>
+              <input class="input" id="nUser" placeholder="ex.: carlos">
+            </div>
+            <div class="field">
+              <label>Senha</label>
+              <input class="input" id="nPass" type="password" placeholder="mínimo 6 caracteres">
+            </div>
+            <div class="field">
+              <label>Papel</label>
+              <select class="input" id="nRole">
+                <option value="entregador">Entregador</option>
+                <option value="lojista">Lojista (acesso total)</option>
+              </select>
+            </div>
+            <button class="btn btn-primary btn-full" onclick="criarUsuario()">Criar usuário</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- COLUNA DIREITA -->
+      <div>
+        <div class="map-card">
+          <div id="map"></div>
+          <div class="map-hint">📍 Clique no mapa para definir o ponto de entrega</div>
+        </div>
+
+        <div class="list-head">
+          <div class="section-title" style="margin:0">Pedidos <span class="n" id="count">0</span></div>
+          <div class="filter-row" id="filters">
+            <button class="on" data-f="all" onclick="setFilter('all', this)">Todos</button>
+            <button data-f="preparando" onclick="setFilter('preparando', this)">Preparando</button>
+            <button data-f="saiu_entrega" onclick="setFilter('saiu_entrega', this)">Em rota</button>
+            <button data-f="chegando" onclick="setFilter('chegando', this)">Chegando</button>
+            <button data-f="entregue" onclick="setFilter('entregue', this)">Entregues</button>
+          </div>
+        </div>
+        <div id="list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/portal/socket-compat.js"></script>
+<script src="/portal/app.js"></script>
+<script>
+let me = null;
+let clickDest = null;
+let allOrders = [];
+let filter = 'all';
+const socket = io();
+socket.on('connect', () => { socket.emit('admin:join'); });
+
+// ---------- sessao ----------
+(async () => {
+  me = await requireSession();
+  if (!me) return;
+  document.getElementById('uName').textContent = me.name;
+  document.getElementById('uRole').textContent = me.role;
+  document.getElementById('uAv').textContent = initials(me.name);
+  if (me.role !== 'lojista') {
+    // entregador logado nao usa o painel
+    location.href = '/entregador';
+    return;
+  }
+  carregarUsuarios();
+  carregar();
+})();
+
+// ---------- mapa ----------
+const map = L.map('map', { zoomControl: true }).setView([-23.55, -46.63], 12);
+document.getElementById('map').classList.add('map-dark');
+tileLayerSafe(map).addTo(map);
+const alertLayer = createAlertLayer(map, socket);
+
+const courierMarkers = new Map();
+const destMarkers = new Map();
+let tempDest = null;
+
+map.on('click', (e) => {
+  clickDest = { lat: e.latlng.lat, lng: e.latlng.lng };
+  document.getElementById('cDest').value = clickDest.lat.toFixed(6) + ', ' + clickDest.lng.toFixed(6);
+  if (tempDest) tempDest.setLatLng(e.latlng);
+  else tempDest = L.marker(e.latlng, { icon: pinIcon('home', '🏠') }).addTo(map).bindTooltip('Ponto de entrega');
+});
+
+// ---------- tabs ----------
+function setTab(id, btn) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b === btn));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('on', p.id === 'tab-' + id));
+}
+function setFilter(f, btn) {
+  filter = f;
+  document.querySelectorAll('#filters button').forEach(b => b.classList.toggle('on', b === btn));
+  renderList();
+}
+
+// ---------- criar pedido ----------
+async function criarPedido() {
+  const items = document.getElementById('cItems').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const valueRaw = document.getElementById('cValue').value.trim();
+  const body = {
+    customerName: document.getElementById('cName').value.trim(),
+    customerPhone: document.getElementById('cPhone').value.trim(),
+    address: document.getElementById('cAddr').value.trim(),
+    items,
+    value: valueRaw ? parseFloat(valueRaw.replace(',', '.')) : null,
+    destLat: clickDest ? clickDest.lat : null,
+    destLng: clickDest ? clickDest.lng : null,
+  };
+  if (!body.address) { toast('Informe o endereço de entrega', 'err'); return; }
+
+  const btn = document.getElementById('btnCriar');
+  btn.disabled = true; btn.textContent = 'Criando…';
+  try {
+    const r = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const o = await r.json();
+    if (!r.ok) throw new Error(o.error || 'falha ao criar');
+    ['cName','cPhone','cAddr','cItems','cValue','cDest'].forEach(id => document.getElementById(id).value = '');
+    clickDest = null;
+    if (tempDest) { map.removeLayer(tempDest); tempDest = null; }
+    toast('Pedido criado! Links gerados.', 'ok');
+    await carregar();
+  } catch (e) {
+    toast('Erro ao criar pedido: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Criar pedido';
+  }
+}
+
+// ---------- listagem ----------
+async function carregar() {
+  const r = await fetch('/api/orders');
+  if (r.status === 401) { location.href = '/login'; return; }
+  allOrders = await r.json();
+  atualizarStats();
+  renderList();
+}
+
+function atualizarStats() {
+  const hoje = new Date().setHours(0, 0, 0, 0);
+  const doDia = allOrders.filter(o => o.createdAt >= hoje);
+  document.getElementById('stTotal').textContent = doDia.length;
+  document.getElementById('stRoute').textContent = doDia.filter(o => ['saiu_entrega','chegando'].includes(o.status)).length;
+  document.getElementById('stDone').textContent = doDia.filter(o => o.status === 'entregue').length;
+  const money = doDia.filter(o => o.status === 'entregue').reduce((s, o) => s + (o.value || 0), 0);
+  document.getElementById('stMoney').textContent = brl(money);
+  document.getElementById('count').textContent = allOrders.length;
+}
+
+function renderList() {
+  const list = document.getElementById('list');
+  const shown = filter === 'all' ? allOrders : allOrders.filter(o => o.status === filter);
+  list.innerHTML = '';
+
+  if (shown.length === 0) {
+    list.innerHTML = `<div class="empty"><span class="ei">📦</span>${filter === 'all' ? 'Nenhum pedido ainda. Crie o primeiro!' : 'Nenhum pedido neste status.'}</div>`;
+    return;
+  }
+
+  shown.forEach((o, i) => {
+    const div = document.createElement('div');
+    div.className = 'order-card';
+    div.style.animationDelay = (i * 25) + 'ms';
+    const trackingLink = location.origin + '/rastreio/' + o.shareToken;
+    const courierLink = location.origin + '/entregador?order=' + o.id;
+    const live = o.lastPosition && Date.now() - o.lastPosition.t < 60000;
+    div.innerHTML = `
+      <div class="oc-head">
+        <div>
+          <div class="oc-name">${esc(o.customerName)}</div>
+          <div class="oc-id">${esc(o.id)}</div>
+        </div>
+        <span class="badge ${o.status}">${label(o.status)}</span>
+      </div>
+      <div class="oc-meta">
+        📌 ${esc(o.address)}<br>
+        🛵 <b>${esc(o.courierName) || 'Sem entregador'}</b>
+        ${o.value != null ? ' &nbsp;·&nbsp; 💰 <b>' + brl(o.value) + '</b>' : ''}
+      </div>
+      <div class="oc-chips">
+        ${o.items && o.items.length ? `<span class="chip">🍽️ ${o.items.length} ite${o.items.length > 1 ? 'ns' : 'm'}</span>` : ''}
+        ${live ? '<span class="chip live">● GPS ao vivo</span>' : (o.lastPosition ? `<span class="chip">🕓 ${relTime(o.lastPosition.t)}</span>` : '<span class="chip">— sem posição</span>')}
+        ${o.destLat ? '<span class="chip">🏠 destino marcado</span>' : ''}
+      </div>
+      <div class="oc-actions">
+        <button class="btn btn-ghost btn-sm" onclick="abrirEntregador('${o.id}')">🛵 Tela do entregador</button>
+        <button class="btn btn-ghost btn-sm" onclick="copiar('${trackingLink}')">🔗 Link do cliente</button>
+        <button class="btn btn-ghost btn-sm" onclick="whatsapp('${o.id}')">💬 WhatsApp</button>
+        ${o.status !== 'entregue' && o.status !== 'cancelado' ? `<button class="btn btn-danger btn-sm" onclick="cancelar('${o.id}')">Cancelar</button>` : ''}
+      </div>
+    `;
+    list.appendChild(div);
+
+    // marcadores no mapa
+    if (o.destLat != null && o.destLng != null) {
+      const ll = [o.destLat, o.destLng];
+      if (destMarkers.has(o.id)) destMarkers.get(o.id).setLatLng(ll);
+      else destMarkers.set(o.id, L.marker(ll, { icon: pinIcon('home', '🏠') }).addTo(map).bindTooltip(esc(o.customerName)));
+    }
+    if (o.lastPosition) atualizarCourier(o.id, o.lastPosition.lat, o.lastPosition.lng, o.courierName);
+  });
+}
+
+function atualizarCourier(orderId, lat, lng, name) {
+  const ll = [lat, lng];
+  if (courierMarkers.has(orderId)) {
+    courierMarkers.get(orderId).setLatLng(ll);
+  } else {
+    const m = L.marker(ll, { icon: pinIcon('courier', '🛵') }).addTo(map).bindTooltip(esc(name) || 'Entregador');
+    courierMarkers.set(orderId, m);
+  }
+}
+
+function label(s) {
+  return { preparando: 'Preparando', saiu_entrega: 'Em rota', chegando: 'Chegando', entregue: 'Entregue', cancelado: 'Cancelado' }[s] || s;
+}
+
+// ---------- acoes ----------
+function abrirEntregador(id) { window.open('/entregador?order=' + id, '_blank'); }
+function copiar(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Link copiado!', 'ok')).catch(() => {
+    prompt('Copie o link:', text);
+  });
+}
+function whatsapp(id) {
+  const o = allOrders.find(x => x.id === id);
+  if (!o) return;
+  const url = location.origin + '/rastreio/' + o.shareToken;
+  const txt = encodeURIComponent(`Olá${o.customerName ? ' ' + o.customerName.split(' ')[0] : ''}! Acompanhe a entrega do seu pedido em tempo real: ${url}`);
+  const num = (o.customerPhone || '').replace(/\D/g, '');
+  window.open('https://wa.me/' + (num ? '55' + num : '') + '?text=' + txt, '_blank');
+}
+async function cancelar(id) {
+  if (!confirm('Cancelar este pedido?')) return;
+  await fetch('/api/orders/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'cancelado' }) });
+  toast('Pedido cancelado', 'ok');
+  carregar();
+}
+
+// ---------- usuarios ----------
+async function carregarUsuarios() {
+  const r = await fetch('/api/users');
+  if (!r.ok) return;
+  const users = await r.json();
+  const box = document.getElementById('usersList');
+  box.innerHTML = '';
+  users.forEach(u => {
+    const div = document.createElement('div');
+    div.className = 'user-row';
+    div.innerHTML = `
+      <div class="av">${initials(u.name)}</div>
+      <div style="flex:1">
+        <div style="font-weight:650;font-size:13.5px">${esc(u.name)}</div>
+        <div class="faint small">@${esc(u.username)}</div>
+      </div>
+      <span class="role-tag ${u.role}">${u.role}</span>
+    `;
+    box.appendChild(div);
+  });
+}
+
+async function criarUsuario() {
+  const body = {
+    name: document.getElementById('nName').value.trim(),
+    username: document.getElementById('nUser').value.trim(),
+    password: document.getElementById('nPass').value,
+    role: document.getElementById('nRole').value,
+  };
+  if (!body.username || !body.password) { toast('Informe usuário e senha', 'err'); return; }
+  const r = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) { toast(data.error || 'erro', 'err'); return; }
+  ['nName','nUser','nPass'].forEach(id => document.getElementById(id).value = '');
+  toast('Usuário criado!', 'ok');
+  carregarUsuarios();
+}
+
+// ---------- tempo real ----------
+socket.on('orders:changed', carregar);
+socket.on('courier:position', ({ orderId, position, courierName }) => {
+  atualizarCourier(orderId, position.lat, position.lng, courierName);
+  const o = allOrders.find(x => x.id === orderId);
+  if (o) { o.lastPosition = position; o.courierName = courierName || o.courierName; renderList(); }
+});
+socket.on('alerts:snapshot', (list) => list.forEach(a => alertLayer.draw(a)));
+setInterval(() => alertLayer.load(), 45000);
+socket.on('connect', () => document.getElementById('conn').className = 'conn-pill live');
+socket.on('disconnect', () => document.getElementById('conn').className = 'conn-pill dead');
+
+setInterval(carregar, 20000);
+</script>
+</body>
+</html>

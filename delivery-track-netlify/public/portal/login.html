@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar — Delivery Track</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/portal/styles.css">
+<style>
+  .demo-box {
+    margin-top: 18px; padding: 13px 15px; border-radius: var(--radius-sm);
+    background: rgba(77,148,255,.07); border: 1px solid rgba(77,148,255,.22);
+    font-size: 12.5px; color: var(--text-2); line-height: 1.7;
+  }
+  .demo-box b { color: var(--text); }
+  .demo-box code {
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px;
+    padding: 1px 6px; font-size: 12px; color: var(--brand-2);
+  }
+  .err-msg {
+    display: none; align-items: center; gap: 8px;
+    background: rgba(255,77,77,.1); border: 1px solid rgba(255,77,77,.3);
+    color: #ff9c9c; padding: 11px 13px; border-radius: var(--radius-sm);
+    font-size: 13px; margin-bottom: 14px;
+  }
+  .err-msg.show { display: flex; animation: shake .4s; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-5px)} 75%{transform:translateX(5px)} }
+  .btn-loading .lbl { display: none; }
+  .btn-loading .spin { display: inline-block; }
+  .spin { display: none; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: rot .7s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <!-- HERO -->
+  <aside class="login-hero">
+    <div class="glow"></div>
+    <div style="position:relative;z-index:2">
+      <div class="brand" style="margin-bottom:44px">
+        <div class="brand-logo">🛵</div>
+        <div>Delivery Track<small>Rastreamento em tempo real</small></div>
+      </div>
+      <h1>Acompanhe cada entrega <em>em tempo real</em>.</h1>
+      <p class="muted" style="max-width:38ch;font-size:14.5px">
+        Compartilhe a localização do entregador com o cliente, mostre a rota no mapa,
+        o tempo de chegada e finalize o pedido com um toque. Tudo num lugar só.
+      </p>
+      <div class="login-features">
+        <div class="login-feature">
+          <div class="fi">📍</div>
+          <div><b>Localização ao vivo</b><p>O cliente vê o motoboy se movendo no mapa, segundo a segundo.</p></div>
+        </div>
+        <div class="login-feature">
+          <div class="fi">⏱️</div>
+          <div><b>Previsão de chegada</b><p>Distância e ETA calculados automaticamente pela rota.</p></div>
+        </div>
+        <div class="login-feature">
+          <div class="fi">✅</div>
+          <div><b>Finalização do pedido</b><p>Marque como entregue e o cliente recebe a confirmação na hora.</p></div>
+        </div>
+      </div>
+    </div>
+    <p class="faint small" style="position:relative;z-index:2;margin:0">© 2026 Delivery Track — painel operacional</p>
+  </aside>
+
+  <!-- FORM -->
+  <main class="login-form-side">
+    <div class="login-card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:26px">
+        <div class="brand" style="font-size:16px">
+          <div class="brand-logo" style="width:32px;height:32px;font-size:16px">🛵</div>
+          Delivery Track
+        </div>
+      </div>
+
+      <h2>Bem-vindo de volta</h2>
+      <p class="muted" style="font-size:14px;margin:6px 0 24px">Entre com sua conta para acessar o painel.</p>
+
+      <div class="err-msg" id="err"><span>⚠️</span><span id="errTxt"></span></div>
+
+      <form id="form" autocomplete="on">
+        <div class="field">
+          <label for="username">Usuário</label>
+          <input class="input" id="username" name="username" placeholder="loja" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Senha</label>
+          <input class="input" id="password" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary btn-full" id="submitBtn" type="submit" style="margin-top:8px;padding:13px">
+          <span class="lbl">Entrar</span>
+          <span class="spin"></span>
+        </button>
+      </form>
+
+      <div class="demo-box">
+        <b>Contas de demonstração</b><br>
+        Lojista — usuário <code>loja</code> · senha <code>loja123</code><br>
+        Entregador — usuário <code>entregador</code> · senha <code>entrega123</code>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/portal/app.js"></script>
+<script>
+const form = document.getElementById('form');
+const btn = document.getElementById('submitBtn');
+const err = document.getElementById('err');
+const errTxt = document.getElementById('errTxt');
+
+// se ja estiver logado, vai direto
+fetch('/api/auth/me').then(r => { if (r.ok) location.href = '/painel'; });
+
+function mostrarErro(msg) {
+  errTxt.textContent = msg;
+  err.classList.add('show');
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  err.classList.remove('show');
+  btn.classList.add('btn-loading');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      mostrarErro(data.error || 'Falha ao entrar');
+      btn.classList.remove('btn-loading');
+      btn.disabled = false;
+      return;
+    }
+    // redireciona conforme o papel
+    location.href = data.role === 'entregador' ? '/entregador' : '/painel';
+  } catch (e2) {
+    mostrarErro('Erro de conexão com o servidor');
+    btn.classList.remove('btn-loading');
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

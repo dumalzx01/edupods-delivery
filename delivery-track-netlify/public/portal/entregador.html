@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Entregador — Delivery Track</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/portal/styles.css">
+<style>
+  body { background: #0b0d12; }
+  .nav-shell { display: grid; grid-template-rows: auto auto; }
+  /* mapa em modo navegacao: ocupa o topo, grande */
+  .nav-map-wrap { position: relative; height: 46vh; min-height: 300px; }
+  #navMap { height: 100%; width: 100%; }
+  .nav-bottom { padding: 16px; max-width: 640px; margin: 0 auto; width: 100%; }
+  .status-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
+  .status-actions .span2 { grid-column: span 2; }
+  .finish-cta { background: linear-gradient(135deg,#2ee27a,#12b866); color: #05210f; padding: 16px; font-size: 16px; }
+  .card-block { background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 17px; margin-top: 14px; box-shadow: var(--shadow); }
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 14px; }
+  .metric-grid .metric { padding: 11px 12px; }
+  .metric-grid .metric .v { font-size: 17px; }
+  .route-summary { display: flex; align-items: center; gap: 12px; }
+  .route-summary .rs-ico { width: 44px; height: 44px; border-radius: 13px; background: var(--surface-3); display: grid; place-items: center; font-size: 21px; flex: 0 0 auto; }
+  .empty-mini { text-align: center; padding: 26px 16px; color: var(--text-3); font-size: 13.5px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-2); margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 16px; height: 5px; border-radius: 3px; display: inline-block; }
+  .legend .ln-route { background: #4dabff; }
+  .legend .ln-done { background: #4a5568; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="topbar">
+    <div class="container topbar-inner" style="height:58px">
+      <div class="brand" style="font-size:15px">
+        <div class="brand-logo" style="width:32px;height:32px;font-size:16px">🛵</div>
+        <div>Entregador<small id="connTxt">conectando…</small></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="user-chip">
+        <div class="avatar" id="uAv">?</div>
+        <div class="meta"><b id="uName">…</b><span>entregador</span></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Sair</button>
+    </div>
+  </header>
+
+  <!-- MAPA EM MODO NAVEGACAO -->
+  <div class="nav-map-wrap">
+    <div id="navMap"></div>
+
+    <!-- Barra de instrucoes estilo Waze -->
+    <div class="nav-bar" id="navBar" style="display:none">
+      <div class="maneuver" id="navIco">⬆</div>
+      <div class="nm-text">
+        <div class="nm-dist" id="navDist">—</div>
+        <div class="nm-route" id="navText">Calculando rota…</div>
+      </div>
+      <div class="nm-lane">
+        <div class="nm-eta">chega em</div>
+        <div class="nm-big" id="navEta">—</div>
+      </div>
+    </div>
+
+    <!-- Botao voltar ao centro -->
+    <div class="waze-fab">
+      <button id="btnVoice" onclick="toggleVoice()" title="Voz de navegação">🔊</button>
+      <button id="btnRecenter" class="on" onclick="toggleRecenter()" title="Seguir minha posição">🎯</button>
+      <button onclick="recenter()" title="Centralizar">⊕</button>
+    </div>
+
+    <!-- Botao de reporte estilo Waze -->
+    <button class="report-fab" id="btnReport" onclick="abrirReporte()" title="Reportar">＋</button>
+
+    <!-- Barra "ainda esta la?" -->
+    <div class="confirm-bar" id="confirmBar">
+      <div class="ci" id="cbIco">⚠️</div>
+      <div class="ct"><b id="cbTitle">Alerta à frente</b><span class="faint" id="cbSub">Ainda está lá?</span></div>
+      <button class="btn-green" style="background:linear-gradient(135deg,#2ee27a,#12b866);color:#05210f" onclick="confirmarAlertaAberto()">👍 Sim</button>
+      <button style="background:var(--surface-3);color:var(--text)" onclick="fecharConfirm()">✕</button>
+    </div>
+  </div>
+
+  <div class="nav-bottom">
+    <!-- GPS BANNER -->
+    <div class="gps-banner off" id="gpsBanner">
+      <div class="gi" id="gpsIco">📡</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:13.5px" id="gpsTitle">GPS desligado</div>
+        <div class="faint small" id="gpsSub">Inicie para o cliente te acompanhar</div>
+      </div>
+      <span class="pulse" id="gpsPulse" style="display:none"></span>
+    </div>
+
+    <!-- SELECAO DE PEDIDO -->
+    <div class="card-block">
+      <div class="field">
+        <label>Pedido selecionado</label>
+        <select class="input" id="orderSel"><option value="">Carregando pedidos…</option></select>
+      </div>
+
+      <div id="orderInfo" style="display:none">
+        <div class="route-summary">
+          <div class="rs-ico">📦</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14.5px" id="oiCustomer">—</div>
+            <div class="faint small" id="oiAddress" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</div>
+          </div>
+          <span class="badge" id="oiStatus">—</span>
+        </div>
+        <div id="oiItems" class="faint small" style="margin-top:10px;line-height:1.7"></div>
+      </div>
+      <div class="empty-mini" id="noOrder">Selecione um pedido para começar a entrega.</div>
+    </div>
+
+    <button class="btn btn-green btn-full" id="btnStart" onclick="iniciar()" style="margin-top:14px;padding:16px;font-size:16px">▶  Iniciar navegação e GPS</button>
+    <button class="btn btn-danger btn-full" id="btnStop" onclick="parar()" style="display:none;margin-top:14px;padding:14px">■  Parar compartilhamento</button>
+
+    <!-- METRICAS -->
+    <div class="metric-grid">
+      <div class="metric"><div class="k">Restam</div><div class="v" id="mDist">—</div></div>
+      <div class="metric"><div class="k">Tempo</div><div class="v" id="mEta">—</div></div>
+      <div class="metric"><div class="k">GPS</div><div class="v" id="mAcc" style="font-size:15px">—</div></div>
+      <div class="metric"><div class="k">Rota total</div><div class="v" id="mTotal" style="font-size:15px">—</div></div>
+    </div>
+    <div class="legend">
+      <span><i class="ln-route"></i> caminho</span>
+      <span><i class="ln-done"></i> já percorrido</span>
+    </div>
+
+    <!-- ACOES DE STATUS -->
+    <div class="card-block">
+      <div class="section-title" style="margin-bottom:10px">Atualizar status</div>
+      <div class="status-actions">
+        <button class="btn btn-ghost" onclick="setStatus('saiu_entrega')">🛵 Sai p/ rota</button>
+        <button class="btn btn-ghost" onclick="setStatus('chegando')">📍 Chegando</button>
+        <button class="btn finish-cta span2" onclick="finalizar()">✔  Entregue / Finalizar pedido</button>
+      </div>
+    </div>
+
+    <p class="faint small" style="text-align:center;margin-top:16px;line-height:1.6">
+      O cliente acompanha sua localização e a rota em tempo real.
+    </p>
+  </div>
+</div>
+
+<!-- Menu de reporte (bottom sheet) -->
+<div class="report-backdrop" id="reportBackdrop" onclick="fecharReporte()"></div>
+<div class="report-sheet" id="reportSheet">
+  <div class="grab"></div>
+  <h3>Reportar no mapa</h3>
+  <p class="sub" id="reportSub">Toque no que você está vendo por aqui</p>
+  <div class="report-grid" id="reportGrid"></div>
+  <button class="btn btn-ghost btn-full" style="margin-top:14px" onclick="fecharReporte()">Cancelar</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/portal/socket-compat.js"></script>
+<script src="/portal/app.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+let orderId = params.get('order') || null;
+let watchId = null;
+let order = null;
+let lastRouteFrom = null;
+let followMode = true;
+let lastPos = null;
+let prevPos = null;          // posicao anterior para calcular rumo por vetor
+let smoothHeading = null;    // rumo suavizado atual
+let lastVoiceStepKey = null;
+let openAlert = null;        // alerta para "ainda esta la?"
+let lastConfirmTime = 0;
+let courierName = '';
+let iniciouNavegacao = false;
+const socket = io();
+
+// ---------- mapa estilo Waze ----------
+const wz = createWazeMap('navMap', { zoom: 16 });
+const alertLayer = createAlertLayer(wz.map, socket);
+Voice.init();
+
+// ---------- sessao ----------
+(async () => {
+  const me = await requireSession();
+  if (!me) return;
+  courierName = me.name;
+  document.getElementById('uName').textContent = me.name;
+  document.getElementById('uAv').textContent = initials(me.name);
+  atualizarBotaoVoz();
+  montarReportGrid();
+  alertLayer.load();
+  carregarPedidos();
+})();
+
+// ---------- conexao ----------
+socket.on('connect', () => { document.getElementById('connTxt').textContent = 'online'; if (orderId) anexar(); });
+socket.on('disconnect', () => document.getElementById('connTxt').textContent = 'offline');
+socket.on('order:snapshot', ({ order: o }) => { if (o.id === orderId) renderOrder(o); });
+
+async function carregarPedidos() {
+  const r = await fetch('/api/orders');
+  if (r.status === 401) { location.href = '/login'; return; }
+  const orders = await r.json();
+  const ativos = orders.filter(o => o.status !== 'entregue' && o.status !== 'cancelado');
+  const sel = document.getElementById('orderSel');
+  sel.innerHTML = '<option value="">Selecione um pedido…</option>';
+  ativos.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o.id;
+    opt.textContent = `${o.customerName} — ${o.address.slice(0, 34)}`;
+    if (o.id === orderId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  if (ativos.length === 0) sel.innerHTML = '<option value="">Nenhum pedido ativo</option>';
+  if (orderId) {
+    const found = orders.find(x => x.id === orderId);
+    if (found) renderOrder(found);
+  }
+}
+
+document.getElementById('orderSel').addEventListener('change', (e) => {
+  orderId = e.target.value || null;
+  if (orderId) { anexar(); carregarPedidos(); }
+  else { wz.clearRoute(); wz.clearTraveled(); document.getElementById('orderInfo').style.display = 'none'; document.getElementById('noOrder').style.display = 'block'; }
+});
+
+function renderOrder(o) {
+  order = o;
+  document.getElementById('orderInfo').style.display = 'block';
+  document.getElementById('noOrder').style.display = 'none';
+  document.getElementById('oiCustomer').textContent = o.customerName;
+  document.getElementById('oiAddress').textContent = o.address || 'Sem endereço';
+  const st = document.getElementById('oiStatus');
+  st.className = 'badge ' + o.status;
+  st.textContent = ({ preparando:'Preparando', saiu_entrega:'Em rota', chegando:'Chegando', entregue:'Entregue', cancelado:'Cancelado' })[o.status] || o.status;
+  document.getElementById('oiItems').innerHTML = (o.items && o.items.length) ? o.items.map(i => esc(i)).join('<br>') : '';
+
+  if (o.destLat != null && o.destLng != null) {
+    wz.setDest(o.destLat, o.destLng, esc(o.customerName));
+    document.getElementById('navBar').style.display = 'flex';
+    // se ja tem posicao conhecida, calcula rota
+    if (lastPos) calcularRota();
+    else if (o.lastPosition) { lastPos = { lat: o.lastPosition.lat, lng: o.lastPosition.lng, heading: o.lastPosition.heading }; calcularRota(); }
+  }
+}
+
+function anexar() {
+  socket.emit('courier:attach', { orderId, courierName });
+}
+
+// ---------- rota real via OSRM ----------
+async function calcularRota(force) {
+  if (!order || order.destLat == null || !lastPos) return;
+  const from = { lat: lastPos.lat, lng: lastPos.lng };
+  // recalcula se saiu muito do ultimo ponto que gerou a rota (~120m)
+  if (!force && lastRouteFrom) {
+    const moved = Math.hypot(from.lat - lastRouteFrom.lat, from.lng - lastRouteFrom.lng);
+    if (moved < 0.0011) return;
+  }
+  lastRouteFrom = from;
+  try {
+    const route = await fetchRoute(from, { lat: order.destLat, lng: order.destLng });
+    wz.setRoute(route);
+    document.getElementById('mTotal').textContent = fmtDist(route.distance);
+    atualizarNavegacao(lastPos.lat, lastPos.lng, route);
+    // anuncia a rota calculada uma vez por rota nova
+    if (!iniciouNavegacao) { iniciouNavegacao = true; Voice.announceStart(route); }
+  } catch (e) {
+    // sem rota: mantem apenas os pinos
+    document.getElementById('navText').textContent = 'Rota indisponível — siga o ponto no mapa';
+  }
+}
+
+// ---------- barra de navegacao ----------
+function atualizarNavegacao(lat, lng, route) {
+  const step = wz.currentStep(lat, lng);
+  if (!step) {
+    document.getElementById('navIco').textContent = '⬆';
+    document.getElementById('navText').textContent = 'Siga em frente';
+    document.getElementById('navDist').textContent = fmtDist(route?.distance);
+    document.getElementById('navEta').textContent = fmtDuration(route?.duration);
+    return;
+  }
+  // distancia restante ate o ponto da manobra
+  let distToStep = null;
+  if (step.lat != null) {
+    distToStep = distMeters({ lat, lng }, { lat: step.lat, lng: step.lng });
+  }
+  const ico = document.getElementById('navIco');
+  ico.textContent = maneuverIcon(step.type, step.modifier);
+  ico.className = 'maneuver ' + (step.type === 'arrive' ? 'arrive' : step.type === 'depart' ? 'depart' : 'turn');
+  document.getElementById('navDist').textContent = distToStep != null ? fmtDist(distToStep) : fmtDist(route?.distance);
+  document.getElementById('navText').textContent = maneuverText(step.type, step.modifier, step.name);
+  document.getElementById('navEta').textContent = fmtDuration(route?.duration);
+
+  // ---- voz: anuncia a manobra conforme a proximidade ----
+  if (distToStep != null) {
+    Voice.announceManeuver(step, distToStep, route);
+  }
+}
+
+// ---------- GPS ----------
+function iniciar() {
+  if (!orderId) { toast('Selecione um pedido primeiro', 'err'); return; }
+  if (!navigator.geolocation) { toast('GPS não suportado neste navegador', 'err'); return; }
+  anexar();
+  document.getElementById('btnStart').style.display = 'none';
+  document.getElementById('btnStop').style.display = 'block';
+  document.getElementById('gpsBanner').className = 'gps-banner';
+  document.getElementById('gpsIco').textContent = '📡';
+  document.getElementById('gpsTitle').textContent = 'Navegando';
+  document.getElementById('gpsSub').textContent = 'O cliente está vendo você no mapa';
+  document.getElementById('gpsPulse').style.display = 'inline-block';
+  document.getElementById('connTxt').textContent = 'ao vivo';
+
+  watchId = navigator.geolocation.watchPosition(onPos, onErr, {
+    enableHighAccuracy: true, maximumAge: 1000, timeout: 15000,
+  });
+}
+
+function parar() {
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  document.getElementById('btnStart').style.display = 'block';
+  document.getElementById('btnStop').style.display = 'none';
+  document.getElementById('gpsBanner').className = 'gps-banner off';
+  document.getElementById('gpsIco').textContent = '📴';
+  document.getElementById('gpsTitle').textContent = 'GPS desligado';
+  document.getElementById('gpsSub').textContent = 'Inicie novamente para retomar';
+  document.getElementById('gpsPulse').style.display = 'none';
+}
+
+function onPos(p) {
+  const { latitude, longitude, accuracy, heading, speed } = p.coords;
+  const newPos = { lat: latitude, lng: longitude };
+  document.getElementById('mAcc').textContent = accuracy ? Math.round(accuracy) + ' m' : '—';
+
+  // ---- RUMO: usa heading nativo; se nao vier, calcula pelo vetor de movimento ----
+  let computedHeading = null;
+  if (heading != null && !Number.isNaN(heading)) {
+    computedHeading = heading;                       // GPS forneceu o rumo
+  } else if (prevPos) {
+    const moved = distMeters(prevPos, newPos);
+    if (moved >= 4) computedHeading = bearingBetween(prevPos, newPos);  // so confia se andou >=4m
+  }
+  if (computedHeading != null) smoothHeading = smoothAngle(smoothHeading, computedHeading);
+
+  prevPos = newPos;
+  lastPos = { lat: latitude, lng: longitude, heading: smoothHeading ?? heading };
+
+  wz.setCourier(latitude, longitude, smoothHeading ?? heading);
+  if (followMode) wz.follow(latitude, longitude);
+
+  // detecta alertas proximos para o "ainda esta la?" e confirmacao automatica de passagem
+  checarAlertasProximos(latitude, longitude);
+
+  // rota + progresso + navegacao
+  if (order && order.destLat != null) {
+    calcularRota();
+    wz.updateProgress(latitude, longitude);
+    if (wz.state.route) atualizarNavegacao(latitude, longitude, wz.state.route);
+  }
+
+  // envia para o cliente/servidor
+  socket.emit('courier:position', {
+    orderId, lat: latitude, lng: longitude,
+    heading: smoothHeading ?? heading ?? null, speed: speed ?? null, accuracy: accuracy ?? null,
+  });
+}
+
+// ---------- voz ----------
+function toggleVoice() {
+  const on = Voice.toggle();
+  atualizarBotaoVoz();
+  toast(on ? 'Voz de navegação ligada 🔊' : 'Voz de navegação desligada 🔇', on ? 'ok' : '');
+  if (on) Voice.say('Voz de navegação ativada.', { cooldown: 1000 });
+}
+function atualizarBotaoVoz() {
+  const b = document.getElementById('btnVoice');
+  if (!b) return;
+  if (!Voice.supported) { b.textContent = '🔇'; b.disabled = true; b.title = 'Voz não suportada'; return; }
+  b.textContent = Voice.enabled ? '🔊' : '🔇';
+  b.classList.toggle('voice-off', !Voice.enabled);
+}
+
+function onErr(e) {
+  document.getElementById('connTxt').textContent = 'erro GPS';
+  toast('Erro de GPS: ' + e.message, 'err');
+}
+
+// distancia/ETA vindos do servidor (ajusta os cards)
+socket.on('courier:position', (p) => {
+  if (p.orderId !== orderId) return;
+  if (p.distanceKm != null) {
+    document.getElementById('mDist').textContent = p.distanceKm < 1 ? Math.round(p.distanceKm * 1000) + ' m' : p.distanceKm.toFixed(2) + ' km';
+    document.getElementById('mEta').textContent = p.etaMin + ' min';
+  }
+});
+
+// ---------- controles do mapa ----------
+function toggleRecenter() {
+  followMode = !followMode;
+  document.getElementById('btnRecenter').classList.toggle('on', followMode);
+  if (followMode && lastPos) wz.follow(lastPos.lat, lastPos.lng);
+}
+function recenter() {
+  if (lastPos) wz.follow(lastPos.lat, lastPos.lng, 16);
+  else wz.fit();
+}
+// se o usuario arrastar o mapa, sai do modo seguir
+wz.map.on('dragstart', () => {
+  if (followMode) { followMode = false; document.getElementById('btnRecenter').classList.remove('on'); }
+});
+
+// ---------- status ----------
+function setStatus(status) {
+  if (!orderId) { toast('Selecione um pedido primeiro', 'err'); return; }
+  socket.emit('courier:status', { orderId, status });
+  toast('Status atualizado', 'ok');
+}
+
+async function finalizar() {
+  if (!orderId) { toast('Selecione um pedido primeiro', 'err'); return; }
+  if (!confirm('Confirmar que o pedido foi entregue?')) return;
+  socket.emit('courier:status', { orderId, status: 'entregue' });
+  await fetch('/api/orders/' + orderId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'entregue' }) });
+  parar();
+  toast('Pedido finalizado! ✓', 'ok');
+  setTimeout(() => { orderId = null; wz.clearRoute(); wz.clearTraveled(); carregarPedidos(); }, 900);
+}
+
+// ---------- ALERTAS: reporte estilo Waze ----------
+const REPORT_TYPES = [
+  { type: 'congestion', icon: '🚗', label: 'Trânsito' },
+  { type: 'accident', icon: '💥', label: 'Acidente' },
+  { type: 'police', icon: '🚔', label: 'Polícia' },
+  { type: 'hazard', icon: '⚠️', label: 'Perigo' },
+  { type: 'construction', icon: '🚧', label: 'Obra' },
+  { type: 'pothole', icon: '🕳️', label: 'Buraco' },
+  { type: 'flooded', icon: '🌊', label: 'Alagamento' },
+  { type: 'blocked', icon: '⛔', label: 'Bloqueio' },
+  { type: 'animals', icon: '🐕', label: 'Animais' },
+  { type: 'traffic_light', icon: '🚦', label: 'Semáforo' },
+  { type: 'fuel', icon: '⛽', label: 'Posto' },
+];
+
+let reportType = null;
+
+function montarReportGrid() {
+  const grid = document.getElementById('reportGrid');
+  grid.innerHTML = '';
+  REPORT_TYPES.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'report-item';
+    b.innerHTML = `<span class="ri">${t.icon}</span><span class="rl">${t.label}</span>`;
+    b.onclick = () => reportar(t.type);
+    grid.appendChild(b);
+  });
+}
+
+function abrirReporte() {
+  if (!lastPos) { toast('Aguardando sinal de GPS…', 'err'); return; }
+  document.getElementById('reportSheet').classList.add('open');
+  document.getElementById('reportBackdrop').classList.add('open');
+  document.getElementById('btnReport').classList.add('active');
+  document.getElementById('btnReport').textContent = '✕';
+}
+function fecharReporte() {
+  document.getElementById('reportSheet').classList.remove('open');
+  document.getElementById('reportBackdrop').classList.remove('open');
+  document.getElementById('btnReport').classList.remove('active');
+  document.getElementById('btnReport').textContent = '＋';
+}
+
+async function reportar(type) {
+  if (!lastPos) return;
+  // posicao ligeiramente a frente na direcao do rumo (o alerta fica na via, nao em voce)
+  const ahead = offsetAhead(lastPos, smoothHeading, 25);
+  try {
+    await postAlert({ type, lat: ahead.lat, lng: ahead.lng, orderToken: order?.shareToken });
+    const meta = REPORT_TYPES.find(t => t.type === type);
+    toast(`${meta.icon} ${meta.label} reportado!`, 'ok');
+    Voice.say('Alerta enviado.', { cooldown: 5000 });
+    fecharReporte();
+  } catch (e) {
+    toast('Não foi possível reportar: ' + e.message, 'err');
+  }
+}
+
+// desloca um ponto N metros na direcao do rumo
+function offsetAhead(pos, heading, meters) {
+  const dLat = (meters * Math.cos(heading * Math.PI / 180)) / 111320;
+  const dLng = (meters * Math.sin(heading * Math.PI / 180)) / (111320 * Math.cos(pos.lat * Math.PI / 180));
+  return { lat: pos.lat + dLat, lng: pos.lng + dLng };
+}
+
+// checa alertas proximos: oferece "ainda esta la?" ao se aproximar
+function checarAlertasProximos(lat, lng) {
+  const now = Date.now();
+  if (now - lastConfirmTime < 60000) return;   // nao incomoda com frequencia
+  if (openAlert) return;
+  let best = null, bestD = Infinity;
+  alertLayer.markers.forEach((m, id) => {
+    const d = distMeters({ lat, lng }, m.getLatLng());
+    if (d < 150 && d < bestD) { bestD = d; best = { id, marker: m }; }
+  });
+  if (best && bestD < 150) {
+    const a = best;
+    openAlert = { id: a.id, dist: bestD };
+    const el = document.getElementById('confirmBar');
+    const info = alertLayer.markers.get(a.id);
+    document.getElementById('cbTitle').textContent = 'Alerta a ' + Math.round(bestD) + ' m';
+    document.getElementById('cbSub').textContent = 'Ainda está lá?';
+    el.classList.add('show');
+  }
+}
+
+async function confirmarAlertaAberto() {
+  if (!openAlert) return;
+  try {
+    await confirmAlert(openAlert.id);
+    toast('Obrigado! Alerta confirmado 👍', 'ok');
+  } catch (e) { /* silencioso */ }
+  lastConfirmTime = Date.now();
+  fecharConfirm();
+}
+function fecharConfirm() {
+  document.getElementById('confirmBar').classList.remove('show');
+  openAlert = null;
+}
+
+// recebe alertas novos de outros entregadores
+socket.on('alert:new', (a) => {
+  // avisa por voz se estiver na rota do entregador
+  if (lastPos && order) {
+    const d = distMeters(lastPos, { lat: a.lat, lng: a.lng });
+    if (d < 700) {
+      // so anuncia se estiver adiante na direcao da rota
+      const ahead = bearingBetween(lastPos, { lat: a.lat, lng: a.lng });
+      const diff = Math.abs(((ahead - (smoothHeading || 0) + 540) % 360) - 180);
+      if (diff < 70) Voice.say('Atenção. ' + a.label + ' à frente.', { cooldown: 15000 });
+    }
+  }
+});
+
+setInterval(carregarPedidos, 25000);
+setInterval(() => alertLayer.load(), 45000);
+</script>
+</body>
+</html>

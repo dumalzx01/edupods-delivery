@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Acompanhar pedido — Delivery Track</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/portal/styles.css">
+<style>
+  .brand-mini { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; position: absolute; top: 0; left: 0; right: 0; z-index: 600; }
+  .brand-mini .b { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 14.5px; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+  .brand-mini .b .lg { width: 30px; height: 30px; border-radius: 9px; background: var(--brand-grad); display: grid; place-items: center; font-size: 15px; box-shadow: 0 4px 14px -4px rgba(255,77,61,.8); }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- MAPA -->
+  <div class="track-hero">
+    <div class="track-map-wrap">
+      <div id="map-track"></div>
+      <div class="brand-mini">
+        <div class="b"><div class="lg">🛵</div> Delivery Track</div>
+        <span class="conn-pill" id="conn"><span class="dt"></span> conectando…</span>
+      </div>
+      <!-- Botao de reporte para o cliente -->
+      <button class="report-fab" id="btnReportCliente" onclick="abrirReporteCliente()" title="Reportar algo no caminho" style="bottom:14px;width:48px;height:48px;font-size:22px">＋</button>
+    </div>
+  </div>
+
+  <!-- CONTEUDO -->
+  <div class="track-body" id="content">
+    <div class="track-status">
+      <div class="ico" id="icoSt">🍳</div>
+      <div style="flex:1">
+        <div class="t1" id="stTitle">Carregando…</div>
+        <div class="t2" id="stSub">Buscando informações do pedido</div>
+      </div>
+    </div>
+
+    <div class="track-card" id="etaCard" style="display:none">
+      <div class="eta-row">
+        <div class="eta-cell">
+          <div class="k">⏱️ Chega em</div>
+          <div class="v" id="etaBig">—</div>
+        </div>
+        <div class="eta-cell">
+          <div class="k">📏 Distância</div>
+          <div class="v" id="distBig">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="track-card" id="courierCard" style="display:none">
+      <div class="courier-row">
+        <div class="av" id="cAv">?</div>
+        <div style="flex:1">
+          <div style="font-weight:750;font-size:15px" id="cName">Entregador</div>
+          <div class="faint small" id="cStatus"><span class="pulse"></span> a caminho de você</div>
+        </div>
+        <span style="font-size:26px">🛵</span>
+      </div>
+    </div>
+
+    <div class="track-card" id="stepsCard">
+      <div class="section-title" style="margin-bottom:14px">Progresso do pedido</div>
+      <div class="steps-v" id="steps"></div>
+    </div>
+
+    <div class="track-card" id="infoCard" style="display:none">
+      <div class="section-title" style="margin-bottom:12px">Detalhes da entrega</div>
+      <div class="faint small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:650">Endereço</div>
+      <div id="addr" style="margin:3px 0 14px;font-size:14.5px">—</div>
+      <div class="faint small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:650">Itens</div>
+      <div id="items" style="margin-top:5px;font-size:14px;line-height:1.8">—</div>
+      <div id="valueRow" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft);display:flex;justify-content:space-between;align-items:center">
+        <span class="faint small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:650">Total</span>
+        <span id="valueBox" style="font-size:20px;font-weight:800"></span>
+      </div>
+    </div>
+
+    <p class="faint small" style="text-align:center;margin-top:20px">Atualizado automaticamente · mapa em tempo real</p>
+  </div>
+
+  <!-- ENTREGUE -->
+  <div class="delivered-wrap" id="deliveredBox" style="display:none">
+    <div class="delivered-check">✓</div>
+    <h1>Pedido entregue!</h1>
+    <p class="muted" style="margin:4px 0 24px">Obrigado por acompanhar. Bom apetite! 🍽️</p>
+    <div class="track-card" style="text-align:left;max-width:400px;margin:0 auto">
+      <div class="section-title" style="margin-bottom:10px">Resumo</div>
+      <div class="small muted" id="delivSummary" style="line-height:1.9"></div>
+    </div>
+  </div>
+
+  <!-- ERRO -->
+  <div class="delivered-wrap" id="errorBox" style="display:none">
+    <div style="font-size:52px;margin-bottom:12px">🔍</div>
+    <h1>Link não encontrado</h1>
+    <p class="muted" style="margin:4px 0 0">Este link de rastreio é inválido ou expirou.</p>
+  </div>
+</div>
+
+<!-- Menu de reporte do cliente -->
+<div class="report-backdrop" id="reportBackdrop" onclick="fecharReporteCliente()"></div>
+<div class="report-sheet" id="reportSheet">
+  <div class="grab"></div>
+  <h3>Reportar no mapa</h3>
+  <p class="sub">Vi algo na região? Isso ajuda os entregadores.</p>
+  <div class="report-grid" id="reportGrid"></div>
+  <button class="btn btn-ghost btn-full" style="margin-top:14px" onclick="fecharReporteCliente()">Cancelar</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/portal/socket-compat.js"></script>
+<script src="/portal/app.js"></script>
+<script>
+const seg = location.pathname.split('/').filter(Boolean).pop();
+const socket = io();
+let orderId = null, order = null, finished = false;
+
+// ---------- mapa estilo Waze ----------
+const wz = createWazeMap('map-track', { attributionControl: false });
+const map = wz.map;
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+const alertLayer = createAlertLayer(map, socket);
+Voice.init();
+
+let rotaTimer = null;
+let lastRotaFrom = null;
+let clienteReportPos = null;   // posicao do entregador, usada para reportar pelo cliente
+
+// agenda o recalculo da rota (debounce)
+function programarRota(lat, lng) {
+  if (rotaTimer) return;
+  rotaTimer = setTimeout(async () => {
+    rotaTimer = null;
+    if (!order || order.destLat == null) return;
+    if (lastRotaFrom && Math.hypot(lat - lastRotaFrom.lat, lng - lastRotaFrom.lng) < 0.0011) return;
+    lastRotaFrom = { lat, lng };
+    try {
+      const route = await fetchRoute({ lat, lng }, { lat: order.destLat, lng: order.destLng });
+      wz.setRoute(route);
+      wz.updateProgress(lat, lng);
+      // mostra o tempo/dist da rota real
+      document.getElementById('etaCard').style.display = 'block';
+      document.getElementById('etaBig').textContent = fmtDuration(route.duration);
+      document.getElementById('distBig').textContent = fmtDist(route.distance);
+    } catch (e) { /* mantem dados do servidor */ }
+  }, 800);
+}
+
+socket.on('connect', () => {
+  setConn('live', 'ao vivo');
+  socket.emit('customer:join', { orderId: seg, token: seg });
+});
+socket.on('disconnect', () => setConn('dead', 'reconectando…'));
+socket.on('error:msg', () => {
+  document.getElementById('content').style.display = 'none';
+  document.getElementById('errorBox').style.display = 'block';
+  setConn('dead', 'não encontrado');
+});
+
+socket.on('order:snapshot', ({ order: o, route }) => {
+  orderId = o.id; order = o;
+  renderStatus(o.status);
+  renderInfo(o);
+  if (o.destLat != null && o.destLng != null) { wz.setDest(o.destLat, o.destLng, 'Seu endereço'); wz.map.setView([o.destLat, o.destLng], 15); }
+  if (o.lastPosition) { clienteReportPos = { lat: o.lastPosition.lat, lng: o.lastPosition.lng }; setMe(o.lastPosition.lat, o.lastPosition.lng, o.courierName, o.lastPosition.heading); wz.fit(); programarRota(o.lastPosition.lat, o.lastPosition.lng); }
+  if (o.status === 'entregue') showDelivered();
+  // carrega alertas da regiao
+  alertLayer.load();
+});
+
+socket.on('courier:online', ({ courierName }) => {
+  showCourier(courierName);
+  document.getElementById('cStatus').innerHTML = '<span class="pulse"></span> saiu para entrega';
+});
+
+socket.on('courier:offline', () => {
+  if (finished) return;
+  document.getElementById('cStatus').textContent = 'sinal momentaneamente indisponível';
+});
+
+socket.on('courier:position', ({ position, distanceKm, etaMin, courierName }) => {
+  if (finished) return;
+  clienteReportPos = { lat: position.lat, lng: position.lng };
+  setMe(position.lat, position.lng, courierName, position.heading);
+  if (position.accuracy) document.getElementById('stSub').textContent = 'Localização precisa em ' + Math.round(position.accuracy) + ' m';
+  if (distanceKm != null) {
+    document.getElementById('etaCard').style.display = 'block';
+    document.getElementById('etaBig').textContent = etaMin + ' min';
+    document.getElementById('distBig').textContent = distanceKm < 1 ? Math.round(distanceKm * 1000) + ' m' : distanceKm.toFixed(1) + ' km';
+  }
+  if (courierName) showCourier(courierName);
+  // recalcula a rota do entregador ate o cliente periodicamente
+  if (order && order.destLat != null) programarRota(position.lat, position.lng);
+});
+
+socket.on('order:status', ({ status }) => {
+  renderStatus(status);
+  if (status === 'entregue') showDelivered();
+});
+
+// ---------- render ----------
+const STATUS_UI = {
+  preparando:   { ico: '🍳', t1: 'Seu pedido está sendo preparado', sub: 'O entregador sairá em breve' },
+  saiu_entrega: { ico: '🛵', t1: 'Saiu para entrega', sub: 'Acompanhe a rota em tempo real' },
+  chegando:     { ico: '📍', t1: 'O entregador está chegando', sub: 'Já está pertinho de você' },
+  entregue:     { ico: '✅', t1: 'Pedido entregue', sub: 'Bom apetite!' },
+  cancelado:    { ico: '✖️', t1: 'Pedido cancelado', sub: 'Fale com a loja para mais informações' },
+};
+const STEPS = [
+  ['preparando', 'Pedido confirmado', 'Em preparo na loja'],
+  ['saiu_entrega', 'Saiu para entrega', 'O entregador está a caminho'],
+  ['chegando', 'Chegando', 'Perto do seu endereço'],
+  ['entregue', 'Entregue', 'Aproveite seu pedido'],
+];
+
+function renderStatus(status) {
+  const u = STATUS_UI[status] || { ico: '•', t1: status, sub: '' };
+  document.getElementById('icoSt').textContent = u.ico;
+  document.getElementById('stTitle').textContent = u.t1;
+  document.getElementById('stSub').textContent = u.sub;
+
+  const idx = STEPS.findIndex(s => s[0] === status);
+  const box = document.getElementById('steps');
+  box.innerHTML = '';
+  STEPS.forEach(([key, label, sub], i) => {
+    const done = status === 'entregue' ? true : (idx >= 0 && i < idx);
+    const active = status !== 'entregue' && i === idx;
+    const div = document.createElement('div');
+    div.className = 'step-v' + (done ? ' done' : '') + (active ? ' active' : '');
+    div.innerHTML = `<div class="bead">${done ? '✓' : (i + 1)}</div>
+      <div><div class="sv-txt">${label}</div><div class="sv-sub">${sub}</div></div>`;
+    box.appendChild(div);
+  });
+}
+
+function renderInfo(o) {
+  document.getElementById('infoCard').style.display = 'block';
+  document.getElementById('addr').textContent = o.address || '—';
+  document.getElementById('items').innerHTML = (o.items && o.items.length) ? o.items.map(i => '• ' + esc(i)).join('<br>') : '—';
+  if (o.value != null) {
+    document.getElementById('valueRow').style.display = 'flex';
+    document.getElementById('valueBox').textContent = brl(o.value);
+  }
+  if (o.courierName) showCourier(o.courierName);
+}
+
+function showCourier(name) {
+  if (!name) return;
+  document.getElementById('courierCard').style.display = 'block';
+  document.getElementById('cName').textContent = name;
+  document.getElementById('cAv').textContent = initials(name);
+}
+
+// ---------- mapa helpers (delegam para o widget Waze) ----------
+function setMe(lat, lng, name, heading) {
+  wz.setCourier(lat, lng, heading);
+  if (finished) return;
+  // acompanha suavemente a posicao do entregador
+  if (wz.state.dest) {
+    const b = L.latLngBounds([wz.state.dest.getLatLng(), [lat, lng]]).pad(0.35);
+    if (!map.getBounds().contains([lat, lng]) || !map.getBounds().contains(wz.state.dest.getLatLng())) {
+      map.fitBounds(b);
+    }
+  } else {
+    wz.follow(lat, lng);
+  }
+}
+function setConn(cls, txt) {
+  const el = document.getElementById('conn');
+  el.className = 'conn-pill ' + cls;
+  el.innerHTML = '<span class="dt"></span> ' + txt;
+}
+
+function showDelivered() {
+  finished = true;
+  document.getElementById('content').style.display = 'none';
+  document.getElementById('deliveredBox').style.display = 'block';
+  setConn('live', 'finalizado');
+  document.getElementById('btnReportCliente').style.display = 'none';
+  alertLayer.setVisible(false);
+  if (order) {
+    document.getElementById('delivSummary').innerHTML = `
+      <b>${esc(order.customerName)}</b><br>
+      📌 ${esc(order.address)}<br>
+      🛵 ${esc(order.courierName) || 'Entregador'}
+      ${order.value != null ? '<br>💰 ' + brl(order.value) : ''}`;
+  }
+}
+
+// ---------- Reporte do cliente ----------
+const REPORT_TYPES_CLIENTE = [
+  { type: 'congestion', icon: '🚗', label: 'Trânsito' },
+  { type: 'accident', icon: '💥', label: 'Acidente' },
+  { type: 'police', icon: '🚔', label: 'Polícia' },
+  { type: 'hazard', icon: '⚠️', label: 'Perigo' },
+  { type: 'construction', icon: '🚧', label: 'Obra' },
+  { type: 'pothole', icon: '🕳️', label: 'Buraco' },
+  { type: 'flooded', icon: '🌊', label: 'Alagamento' },
+  { type: 'blocked', icon: '⛔', label: 'Bloqueio' },
+  { type: 'animals', icon: '🐕', label: 'Animais' },
+];
+
+function montarReportGridCliente() {
+  const grid = document.getElementById('reportGrid');
+  grid.innerHTML = '';
+  REPORT_TYPES_CLIENTE.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'report-item';
+    b.innerHTML = `<span class="ri">${t.icon}</span><span class="rl">${t.label}</span>`;
+    b.onclick = () => reportarCliente(t.type);
+    grid.appendChild(b);
+  });
+}
+
+let reportPos = null;
+function abrirReporteCliente() {
+  // usa a posicao do entregador; se nao houver, o centro do mapa
+  const center = map.getCenter();
+  reportPos = clienteReportPos || { lat: center.lat, lng: center.lng };
+  document.getElementById('reportSheet').classList.add('open');
+  document.getElementById('reportBackdrop').classList.add('open');
+}
+function fecharReporteCliente() {
+  document.getElementById('reportSheet').classList.remove('open');
+  document.getElementById('reportBackdrop').classList.remove('open');
+}
+
+async function reportarCliente(type) {
+  if (!reportPos) return;
+  try {
+    await postAlert({ type, lat: reportPos.lat, lng: reportPos.lng, orderToken: seg });
+    const meta = REPORT_TYPES_CLIENTE.find(t => t.type === type);
+    toast(`${meta.icon} ${meta.label} reportado. Obrigado!`, 'ok');
+    fecharReporteCliente();
+  } catch (e) {
+    toast('Não foi possível reportar: ' + e.message, 'err');
+  }
+}
+
+// clicar num alerta abre a confirmacao
+window.addEventListener('alert:click', (ev) => {
+  const a = ev.detail;
+  if (!confirm(`Confirmar que "${a.label}" ainda está lá?`)) return;
+  confirmAlert(a.id).then(() => toast('Confirmado 👍', 'ok')).catch(() => {});
+});
+
+montarReportGridCliente();
+setInterval(() => { if (!finished) alertLayer.load(); }, 45000);
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "delivery-track-netlify",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Delivery Track: Netlify Functions com Supabase",
+  "scripts": {
+    "check": "node --check netlify/functions/api.js && node --check public/portal/socket-compat.js"
+  },
+  "engines": { "node": ">=20" }
+}

@@ -1,0 +1,38 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api?path=:splat"
+  status = 200
+
+[[redirects]]
+  from = "/painel"
+  to = "/portal/painel.html"
+  status = 200
+
+[[redirects]]
+  from = "/entregador"
+  to = "/portal/entregador.html"
+  status = 200
+
+[[redirects]]
+  from = "/login"
+  to = "/portal/login.html"
+  status = 200
+
+[[redirects]]
+  from = "/rastreio/*"
+  to = "/portal/rastreio.html"
+  status = 200
+
+[[redirects]]
+  from = "/rastreio"
+  to = "/portal/rastreio.html"
+  status = 200
+
+[[redirects]]
+  from = "/"
+  to = "/login"
+  status = 302
